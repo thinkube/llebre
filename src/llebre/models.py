@@ -8,11 +8,12 @@ two by its import line. Every part underneath is Transformers, PEFT, TRL,
 bitsandbytes and Liger Kernel.
 """
 
+import types
 from typing import Any, Optional
 
 import torch
 
-from llebre import _fused, _liger
+from llebre import _fused, _linear_attention, _liger, _save
 
 DEFAULT_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 ATTENTION_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj"]
@@ -22,17 +23,33 @@ MLP_TARGETS = ["gate_proj", "up_proj", "down_proj"]
 PADDING_FREE_ATTENTION = {"flash_attention_2", "flash_attention_3"}
 
 
+def has_linear_attention(config) -> bool:
+    text = config.get_text_config() if hasattr(config, "get_text_config") else config
+    return "linear_attention" in (getattr(text, "layer_types", None) or [])
+
+
+def _trl_passes_boundaries() -> bool:
+    """TRL's padding-free collator passes cu_seq_lens from TRL 1.16."""
+    import trl
+
+    major, minor = (int(part) for part in trl.__version__.split(".")[:2])
+    return (major, minor) >= (1, 16)
+
+
 def padding_free_ok(config, attn_implementation: str) -> bool:
     """Whether the model trains correctly on padding-free batches.
 
     It needs an attention that reads the example boundaries from the position
-    ids, and no linear-attention layers: those (the gated DeltaNet layers of
-    Qwen3.5 and Qwen3-Next) take their boundaries only as cu_seq_lens, which
-    this TRL does not pass, so their examples would run into each other.
+    ids. Linear-attention layers (the gated DeltaNet layers of Qwen3.5, Qwen3.6
+    and Qwen3-Next) take their boundaries only as cu_seq_lens: they need TRL
+    1.16 or later, which passes them, and flash-linear-attention, which honours
+    them (see llebre._linear_attention). Without both, such a model is padded.
     """
-    text = config.get_text_config() if hasattr(config, "get_text_config") else config
-    layer_types = getattr(text, "layer_types", None) or []
-    return attn_implementation in PADDING_FREE_ATTENTION and "linear_attention" not in layer_types
+    if attn_implementation not in PADDING_FREE_ATTENTION:
+        return False
+    if has_linear_attention(config):
+        return _trl_passes_boundaries() and _linear_attention.available()
+    return True
 
 
 def load_tokenizer(model_name: str, **kwargs):
@@ -104,7 +121,10 @@ class FastLanguageModel:
         if liger:
             _liger.prepare(model, loss_chunk_budget)
         model.max_seq_length = max_seq_length
-        model._llebre = {"padding_free": padding_free_ok(model.config, attn_implementation), "liger": liger}
+        padding_free = padding_free_ok(model.config, attn_implementation)
+        if padding_free and has_linear_attention(model.config):
+            _linear_attention.patch(model)
+        model._llebre = {"padding_free": padding_free, "liger": liger}
         return model, tokenizer
 
     @staticmethod
@@ -132,6 +152,11 @@ class FastLanguageModel:
             is refused.
         Other keyword arguments go to PEFT's LoraConfig, for example
         target_parameters for the experts of a mixture-of-experts model.
+
+        The model returned also has save_pretrained_merged(directory, tokenizer,
+        save_method) and push_to_hub_merged(repo_id, tokenizer, save_method,
+        token): save_method "lora" for the adapter alone, "merged_16bit" for
+        the base with the adapter merged in (see llebre._save).
         """
         from peft import LoraConfig, get_peft_model
 
@@ -153,6 +178,8 @@ class FastLanguageModel:
         peft_model._llebre_fused_lora = fused_lora
         if fused_lora:
             _fused.apply(peft_model)
+        peft_model.save_pretrained_merged = types.MethodType(_save.save, peft_model)
+        peft_model.push_to_hub_merged = types.MethodType(_save.push, peft_model)
         return peft_model
 
     @staticmethod

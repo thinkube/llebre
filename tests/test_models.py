@@ -17,9 +17,17 @@ def test_padding_free_needs_flash_attention():
     assert not padding_free_ok(config, "eager")
 
 
-def test_padding_free_refused_with_linear_attention_layers():
+@pytest.mark.parametrize("trl_version, fla, expected", [("0.29.1", True, False), ("1.15.0", True, False),
+                                                        ("1.16.0", False, False), ("1.16.0", True, True)])
+def test_padding_free_with_linear_attention_needs_trl_1_16_and_fla(monkeypatch, trl_version, fla, expected):
+    import trl
+
+    from llebre import _linear_attention
+
+    monkeypatch.setattr(trl, "__version__", trl_version)
+    monkeypatch.setattr(_linear_attention, "available", lambda: fla)
     config = PretrainedConfig(layer_types=["linear_attention", "linear_attention", "full_attention"])
-    assert not padding_free_ok(config, "flash_attention_2")
+    assert padding_free_ok(config, "flash_attention_2") is expected
 
 
 def lora_names(model):

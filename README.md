@@ -31,6 +31,7 @@ trainer.train()
 | Loss chunk budget | Liger's chunks sized 32 times larger than its default (`loss_chunk_budget`): on a large vocabulary the default makes a few dozen tokens per chunk and the GPU idles between thin matmuls |
 | FlashAttention 2 and padding-free batches | The examples of a batch end to end, no compute on padding; TRL's `SFTTrainer` turns `padding_free` on for a llebre model |
 | bitsandbytes NF4 (MIT) | QLoRA, without casting the norms to float32 |
+| Example boundaries in linear-attention layers | Qwen3.5, Qwen3.6 and Qwen3-Next train padding-free with TRL 1.16 or later and [flash-linear-attention](https://github.com/fla-org/flash-linear-attention) (MIT): llebre gives their short convolution the boundaries, which its PyTorch version ignores. With an older TRL, or without flash-linear-attention, these models train on padded batches |
 | [Axolotl](https://github.com/axolotl-ai-cloud/axolotl)'s LoRA kernels (Apache-2.0), off by default | `get_peft_model(..., fused_lora=True)`: each adapted projection and each SwiGLU MLP computed with its adapter in one function with a hand-written backward pass. Models whose MLP is not SwiGLU are refused |
 
 ## Measured
@@ -49,13 +50,20 @@ tokens in every run:
 The gain is largest on models with a large vocabulary; it has not been
 measured on larger models yet.
 
+## Saving
+
+```python
+model.save_pretrained_merged("out", tokenizer, save_method="merged_16bit")  # or "lora"
+model.push_to_hub_merged("org/name", tokenizer, save_method="merged_16bit", token=...)
+```
+
+`merged_16bit` writes the base model with the adapter merged in, in the
+model's 16-bit dtype; a QLoRA base is dequantized first. The model in memory
+is left as it was.
+
 ## What it does not do yet
 
-- Padding-free batches on models with linear-attention layers (Qwen3.5,
-  Qwen3-Next): this TRL does not pass them the example boundaries, so llebre
-  trains them on padded batches.
-- Vision layers, GRPO with vLLM sharing the weights, merged and GGUF saving,
-  several GPUs.
+- Vision layers, GRPO with vLLM sharing the weights, GGUF export, several GPUs.
 
 ## Not affiliated with Unsloth
 
