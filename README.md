@@ -50,6 +50,18 @@ tokens in every run:
 The gain is largest on models with a large vocabulary; it has not been
 measured on larger models yet.
 
+## Training on the answers only
+
+```python
+from llebre.chat_templates import train_on_responses_only
+
+trainer = train_on_responses_only(trainer, instruction_part="<|im_start|>user\n",
+                                  response_part="<|im_start|>assistant\n")
+```
+
+The loss counts only the tokens after each `response_part`, up to the next
+`instruction_part`, in padded and padding-free batches alike.
+
 ## Saving
 
 ```python
