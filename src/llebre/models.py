@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 import torch
 
-from llebre import _banner, _fused, _linear_attention, _liger, _moe, _save, _unified_memory
+from llebre import _banner, _fused, _linear_attention, _liger, _moe, _save, _split, _unified_memory
 
 DEFAULT_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 ATTENTION_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj"]
@@ -109,7 +109,8 @@ class FastLanguageModel:
         liger: Liger's kernels and fused loss, which TRL's SFTTrainer applies;
             a model type Liger has no patches for is refused unless liger=False.
         loss_chunk_budget: Liger's chunk_mem_const for the fused loss (see llebre._liger).
-        device_map: the whole model on the process's GPU unless given: GPU
+        device_map: "balanced" or "auto" spread the model's layers over the GPUs
+            (see llebre._split); otherwise the whole model on the process's GPU: GPU
             LOCAL_RANK under torchrun or accelerate launch, else GPU 0. On a GPU
             that shares the system's memory, a model loaded whole onto it is
             loaded shard by shard (see llebre._unified_memory).
@@ -160,7 +161,7 @@ class FastLanguageModel:
         padding_free = refusal is None
         if padding_free and has_linear_attention(model.config):
             _linear_attention.patch(model)
-        model._llebre = {"padding_free": padding_free, "liger": liger}
+        model._llebre = {"padding_free": padding_free, "liger": liger, "split": _split.apply(model)}
         dtype_name = str(dtype).removeprefix("torch.")
         _banner.show(model_type=model.config.model_type, liger=liger, padding_free=padding_free,
                      padding_free_reason=refusal,

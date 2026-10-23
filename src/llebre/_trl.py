@@ -19,7 +19,13 @@ from the model unless its config gives them:
   experts of a mixture of experts), Liger's SwiGLU is left off: it would
   replace the forward of the module PEFT has wrapped.
 
+One process training a model on one GPU uses that GPU only, never
+nn.DataParallel, whatever the number of GPUs it sees.
 With several processes (DDP), ddp_find_unused_parameters is False unless given.
+Under FSDP, bf16 is False unless given (Accelerate would turn the BF16 weights
+to FP32), and bitsandbytes' optimizers are refused (see _fsdp_settings).
+A model spread over several GPUs gets its parts' devices again after the
+trainer is built, which may have replaced the model's forward (see llebre._split).
 
 After the trainer is built, a model with fused_lora gets its fused kernels
 again, in place of the SwiGLU MLP forward that Liger set.
@@ -57,6 +63,29 @@ class CutToLength:
 
     def __call__(self, examples):
         return self.collator([_cut(example, self.max_length) for example in examples])
+
+
+# bitsandbytes' optimizers, which update plain tensors, not FSDP2's sharded ones
+_BNB_OPTIMIZERS = {"adamw_8bit", "adamw_bnb_8bit", "paged_adamw_8bit", "paged_adamw_32bit", "paged_adamw",
+                   "adam_8bit", "paged_lion_8bit", "lion_8bit", "paged_lion_32bit", "ademamix_8bit",
+                   "paged_ademamix_8bit", "paged_ademamix_32bit", "rmsprop_bnb_8bit", "rmsprop_bnb"}
+
+
+def _fsdp_settings(args, given) -> None:
+    """A llebre model under FSDP: its BF16 weights stay BF16, and the optimizer can update shards."""
+    optim = str(getattr(args.optim, "value", args.optim))
+    if optim in _BNB_OPTIMIZERS:
+        raise ValueError(f"optim={optim!r}: bitsandbytes' optimizers cannot update FSDP2's sharded parameters; "
+                         "use optim='adamw_torch_fused' (LoRA's optimizer state is small)")
+    if "bf16" not in given:
+        # With mixed precision on, Accelerate turns every BF16 parameter to FP32
+        # before sharding: twice the memory, and twice the weights the GPUs send
+        # each other at every layer. The model is loaded in BF16 already.
+        args.bf16 = False
+    elif args.bf16:
+        raise ValueError("bf16=True with FSDP: Accelerate then turns the model's BF16 weights to FP32 before "
+                         "sharding, doubling their memory and the traffic between the GPUs; leave bf16 unset, "
+                         "the model is loaded in BF16")
 
 
 def _patch(trainer_cls, config_cls, kind: str, trl_1: bool) -> None:
@@ -98,6 +127,12 @@ def _patch(trainer_cls, config_cls, kind: str, trl_1: bool) -> None:
                 # module; Liger's SwiGLU, which replaces that module's forward, would
                 # run on PEFT's wrapper instead
                 args.liger_kernel_config = {**(args.liger_kernel_config or {}), "swiglu": False}
+            if getattr(args, "fsdp", None):
+                _fsdp_settings(args, given)
+            if int(os.environ.get("WORLD_SIZE", 1)) == 1 and not info.get("split") and getattr(args, "_n_gpu", 1) > 1:
+                # One process, the model on one GPU, several GPUs visible: the Trainer
+                # would wrap the model in nn.DataParallel, which TRL refuses
+                args._n_gpu = 1
             if int(os.environ.get("WORLD_SIZE", 1)) > 1 and "ddp_find_unused_parameters" not in given:
                 # Under DDP every adapter takes part in every step; looking for unused
                 # parameters only costs a pass over the graph, and fails with
@@ -119,6 +154,12 @@ def _patch(trainer_cls, config_cls, kind: str, trl_1: bool) -> None:
         trainer = bound.arguments["self"]
         if cut_to is not None:
             trainer.data_collator = CutToLength(trainer.data_collator, cut_to)
+        if info is not None and info.get("split"):
+            from llebre import _split
+
+            base = trainer.model.get_base_model() if hasattr(trainer.model, "get_base_model") else trainer.model
+            _split.apply(base)
+            _split.count_on_output_device(trainer, base._llebre_output_device)
         if info is not None and getattr(model, "_llebre_fused_lora", False):
             from llebre import _fused
 

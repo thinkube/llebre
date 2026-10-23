@@ -1,6 +1,7 @@
 # Copyright Alejandro Martínez Corriá and the Thinkube contributors
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
 from datasets import Dataset
 from trl import SFTConfig, SFTTrainer
 
@@ -67,3 +68,17 @@ def test_grpo_takes_its_settings_from_the_model(tiny_model, tokenizer, tmp_path)
                     train_dataset=prompts, processing_class=tokenizer)
     assert t.args.gradient_checkpointing is True
     assert t.args.use_liger_kernel is False
+
+
+def test_fsdp_refuses_bitsandbytes_optimizers_and_keeps_bf16_weights(tiny_model, tokenizer):
+    from llebre._trl import _fsdp_settings
+
+    args = SFTConfig(output_dir="/tmp/x", use_cpu=True, report_to=[], optim="adamw_8bit")
+    with pytest.raises(ValueError, match="adamw_torch_fused"):
+        _fsdp_settings(args, {"optim"})
+    args = SFTConfig(output_dir="/tmp/x", use_cpu=True, report_to=[], optim="adamw_torch")
+    _fsdp_settings(args, {"optim"})
+    assert args.bf16 is False
+    args.bf16 = True
+    with pytest.raises(ValueError, match="FP32"):
+        _fsdp_settings(args, {"optim", "bf16"})
