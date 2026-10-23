@@ -17,12 +17,14 @@ classifiers = [
 ]
 # torch comes from the environment (an NVIDIA container or a venv built on one),
 # so it is not a dependency. liger-kernel is held below 0.9: llebre sets the
-# chunk budget of Liger's fused loss through its ops module.
+# chunk budget of Liger's fused loss through its ops module. requests: TRL 0.29's
+# GRPO trainer imports it without declaring it, and llebre imports that trainer.
 dependencies = [
     "transformers>=5.17,<6",
     "trl>=0.29,<2",
     "peft>=0.21,<1",
     "liger-kernel>=0.8.5,<0.9",
+    "requests>=2",
 ]
 
 [project.optional-dependencies]
