@@ -100,12 +100,16 @@ class FastLanguageModel:
         token: Optional[str] = None,
         trust_remote_code: bool = False,
         fast_inference: bool = False,
+        quant_storage: Optional[torch.dtype] = None,
         **kwargs,
     ):
         """The model and its tokenizer, ready for get_peft_model.
 
         dtype: bfloat16 where the GPU supports it, else float16, unless given.
         load_in_4bit: QLoRA, NF4 weights with double quantization, computed in dtype.
+        quant_storage: the dtype bitsandbytes packs the 4-bit weights in; under
+            FSDP2 the model's dtype (torch.bfloat16), so that a layer's weights
+            share one dtype to be sharded.
         liger: Liger's kernels and fused loss, which TRL's SFTTrainer applies;
             a model type Liger has no patches for is refused unless liger=False.
         loss_chunk_budget: Liger's chunk_mem_const for the fused loss (see llebre._liger).
@@ -138,7 +142,8 @@ class FastLanguageModel:
             from transformers import BitsAndBytesConfig
 
             quantization = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                                              bnb_4bit_compute_dtype=dtype, bnb_4bit_use_double_quant=True)
+                                              bnb_4bit_compute_dtype=dtype, bnb_4bit_use_double_quant=True,
+                                              **({"bnb_4bit_quant_storage": quant_storage} if quant_storage else {}))
         # One process per GPU (torchrun, accelerate launch) puts the model on its own GPU
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         device_map = device_map if device_map is not None else {"": local_rank}

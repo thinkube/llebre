@@ -119,6 +119,13 @@ no_robots:
 | salamandraTA-7b, layers spread, 8 per step | 1,289 | 6.8 / 10.4 GB |
 | Qwen3-14B (29.5 GB, does not fit one GPU), layers spread, 8 per step | 641 | 14.3 / 16.9 GB |
 | Qwen3-14B, FSDP2, 16 per GPU | 799 | 19.2 GB |
+| Qwen3-14B QLoRA, FSDP2, 16 per GPU | 1,068 | 14.1 GB |
+| Qwen3-14B QLoRA, DDP, 16 per GPU | 1,207 | 13.6 GB |
+
+Between GPUs on PCIe, replicate the model when it fits each GPU (DDP), and
+shard it only when it does not. For QLoRA under FSDP2, load with
+`from_pretrained(..., load_in_4bit=True, quant_storage=torch.bfloat16)`, so that
+each layer's packed 4-bit weights share the dtype FSDP2 shards.
 
 ## Large models on GPUs that share the system's memory
 
@@ -153,7 +160,7 @@ is left as it was.
 ## What it does not do yet
 
 - Vision layers; GRPO with vLLM sharing one copy of the weights with the
-  trainer; GGUF export; QLoRA and expert LoRA under FSDP2; training across
+  trainer; GGUF export; expert LoRA under FSDP2; training across
   several machines.
 
 ## Not affiliated with Unsloth
