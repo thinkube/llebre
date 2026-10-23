@@ -8,12 +8,13 @@ two by its import line. Every part underneath is Transformers, PEFT, TRL,
 bitsandbytes and Liger Kernel.
 """
 
+import contextlib
 import types
 from typing import Any, Optional
 
 import torch
 
-from llebre import _banner, _fused, _linear_attention, _liger, _save
+from llebre import _banner, _fused, _linear_attention, _liger, _moe, _save, _unified_memory
 
 DEFAULT_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 ATTENTION_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj"]
@@ -107,7 +108,9 @@ class FastLanguageModel:
         liger: Liger's kernels and fused loss, which TRL's SFTTrainer applies;
             a model type Liger has no patches for is refused unless liger=False.
         loss_chunk_budget: Liger's chunk_mem_const for the fused loss (see llebre._liger).
-        device_map: the whole model on GPU 0 unless given.
+        device_map: the whole model on GPU 0 unless given. On a GPU that shares
+            the system's memory, the whole model is loaded shard by shard (see
+            llebre._unified_memory).
         fast_inference: vLLM inside the training process is not offered;
             True is refused. Generation for GRPO through vLLM goes through
             TRL's GRPOConfig(use_vllm=True). With fast_inference False, the
@@ -133,10 +136,15 @@ class FastLanguageModel:
 
             quantization = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                               bnb_4bit_compute_dtype=dtype, bnb_4bit_use_double_quant=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name, dtype=dtype, attn_implementation=attn_implementation, quantization_config=quantization,
-            device_map=device_map if device_map is not None else {"": 0}, **hub, **kwargs,
-        )
+        device_map = device_map if device_map is not None else {"": 0}
+        whole_on_gpu_0 = isinstance(device_map, dict) and set(device_map.values()) <= {0, "cuda:0"}
+        loading = (_unified_memory.shards_to_gpu() if whole_on_gpu_0 and _unified_memory.shares_system_memory()
+                   else contextlib.nullcontext())
+        with loading:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name, dtype=dtype, attn_implementation=attn_implementation, quantization_config=quantization,
+                device_map=device_map, **hub, **kwargs,
+            )
         tokenizer = load_tokenizer(model_name, **hub)
         if liger:
             _liger.prepare(model, loss_chunk_budget)
@@ -176,7 +184,9 @@ class FastLanguageModel:
             SwiGLU MLPs (see llebre._fused); a model with another MLP activation
             is refused.
         Other keyword arguments go to PEFT's LoraConfig, for example
-        target_parameters for the experts of a mixture-of-experts model.
+        target_parameters for the experts of a mixture-of-experts model; LoRA on
+        Transformers' expert stacks is then computed on the routed tokens only
+        (see llebre._moe).
 
         The model returned also has save_pretrained_merged(directory, tokenizer,
         save_method) and push_to_hub_merged(repo_id, tokenizer, save_method,
@@ -200,6 +210,10 @@ class FastLanguageModel:
         model.config.use_cache = False
         peft_model = get_peft_model(model, config)
         peft_model._llebre_gradient_checkpointing = bool(use_gradient_checkpointing)
+        peft_model._llebre_parameter_targets = bool(kwargs.get("target_parameters"))
+        if peft_model._llebre_parameter_targets:
+            # LoRA on expert stacks, computed on the tokens routed to each expert (see llebre._moe)
+            _moe.apply(peft_model)
         peft_model._llebre_fused_lora = fused_lora
         if fused_lora:
             _fused.apply(peft_model)

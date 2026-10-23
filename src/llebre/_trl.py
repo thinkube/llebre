@@ -15,7 +15,9 @@ from the model unless its config gives them:
   Liger's patches, and skips the metrics it would compute from the logits
   that Liger's fused loss never builds. For GRPO, TRL 0.29 computes the
   GRPO loss with Liger's chunked loss; TRL 1.x applies Liger's model kernels
-  without a fused loss.
+  without a fused loss. With LoRA on parameters (target_parameters, for the
+  experts of a mixture of experts), Liger's SwiGLU is left off: it would
+  replace the forward of the module PEFT has wrapped.
 
 After the trainer is built, a model with fused_lora gets its fused kernels
 again, in place of the SwiGLU MLP forward that Liger set.
@@ -87,6 +89,12 @@ def _patch(trainer_cls, config_cls, kind: str, trl_1: bool) -> None:
                     cut_to, args.max_length = args.max_length, None
             if "use_liger_kernel" not in given:
                 args.use_liger_kernel = info["liger"]
+            if (args.use_liger_kernel and getattr(model, "_llebre_parameter_targets", False)
+                    and "liger_kernel_config" not in given):
+                # LoRA on parameters (the experts of a mixture of experts) wraps their
+                # module; Liger's SwiGLU, which replaces that module's forward, would
+                # run on PEFT's wrapper instead
+                args.liger_kernel_config = {**(args.liger_kernel_config or {}), "swiglu": False}
             checkpointing = getattr(model, "_llebre_gradient_checkpointing", None)
             if checkpointing is not None and "gradient_checkpointing" not in given:
                 args.gradient_checkpointing = checkpointing
