@@ -52,7 +52,12 @@ tokens in every run:
 | llebre 0.1.0 | 2,871 | 3,161 | 5.1 / 3.4 GB | 2.492 / 2.561 |
 | llebre 0.1.0, `fused_lora=True` | 3,451 | 3,447 | 5.1 / 3.4 GB | 2.492 / 2.563 |
 
-The gain is largest on models with a large vocabulary.
+The gain is largest on models with a large vocabulary. Qwen3.5-4B (gated
+DeltaNet layers), LoRA, the same settings: 508 tokens per second on padded
+batches with TRL 0.29, 1,097 padding-free with TRL 1.16, the same loss.
+
+Every table here comes from the scripts in [benchmarks](benchmarks), with the
+recorded runs in [benchmarks/results](benchmarks/results).
 
 ## Mixture of experts
 
@@ -104,7 +109,8 @@ step, one NVIDIA GB10:
 
 Under FSDP llebre keeps the model's BF16 weights in BF16 (`bf16` left unset:
 Accelerate would turn them to FP32 before sharding) and refuses bitsandbytes'
-optimizers, which cannot update sharded parameters. In a model spread over
+optimizers, which cannot update sharded parameters (use
+`optim="adamw_torch_fused"`). In a model spread over
 GPUs, each part runs with its own GPU as the current device, so that Triton's
 kernels reach their tensors between GPUs without peer-to-peer access.
 
