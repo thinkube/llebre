@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 import torch
 
-from llebre import _fused, _linear_attention, _liger, _save
+from llebre import _banner, _fused, _linear_attention, _liger, _save
 
 DEFAULT_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 ATTENTION_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj"]
@@ -36,8 +36,8 @@ def _trl_passes_boundaries() -> bool:
     return (major, minor) >= (1, 16)
 
 
-def padding_free_ok(config, attn_implementation: str) -> bool:
-    """Whether the model trains correctly on padding-free batches.
+def padding_free_refusal(config, attn_implementation: str) -> Optional[str]:
+    """Why the model cannot train on padding-free batches, or None when it can.
 
     It needs an attention that reads the example boundaries from the position
     ids. Linear-attention layers (the gated DeltaNet layers of Qwen3.5, Qwen3.6
@@ -46,10 +46,15 @@ def padding_free_ok(config, attn_implementation: str) -> bool:
     them (see llebre._linear_attention). Without both, such a model is padded.
     """
     if attn_implementation not in PADDING_FREE_ATTENTION:
-        return False
-    if has_linear_attention(config):
-        return _trl_passes_boundaries() and _linear_attention.available()
-    return True
+        return f"attention is {attn_implementation}"
+    if has_linear_attention(config) and not (_trl_passes_boundaries() and _linear_attention.available()):
+        return "linear-attention layers need TRL 1.16 or later and flash-linear-attention"
+    return None
+
+
+def padding_free_ok(config, attn_implementation: str) -> bool:
+    """Whether the model trains correctly on padding-free batches (see padding_free_refusal)."""
+    return padding_free_refusal(config, attn_implementation) is None
 
 
 def load_tokenizer(model_name: str, **kwargs):
@@ -102,6 +107,8 @@ class FastLanguageModel:
             a model type Liger has no patches for is refused unless liger=False.
         loss_chunk_budget: Liger's chunk_mem_const for the fused loss (see llebre._liger).
         device_map: the whole model on GPU 0 unless given.
+        Prints a banner of what the model will be trained with, unless
+        LLEBRE_QUIET=1 is in the environment.
         """
         from transformers import AutoModelForCausalLM
 
@@ -121,10 +128,15 @@ class FastLanguageModel:
         if liger:
             _liger.prepare(model, loss_chunk_budget)
         model.max_seq_length = max_seq_length
-        padding_free = padding_free_ok(model.config, attn_implementation)
+        refusal = padding_free_refusal(model.config, attn_implementation)
+        padding_free = refusal is None
         if padding_free and has_linear_attention(model.config):
             _linear_attention.patch(model)
         model._llebre = {"padding_free": padding_free, "liger": liger}
+        dtype_name = str(dtype).removeprefix("torch.")
+        _banner.show(model_type=model.config.model_type, liger=liger, padding_free=padding_free,
+                     padding_free_reason=refusal,
+                     weights=f"4-bit NF4 computing in {dtype_name}" if load_in_4bit else dtype_name)
         return model, tokenizer
 
     @staticmethod

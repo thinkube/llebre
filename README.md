@@ -22,6 +22,11 @@ trainer = SFTTrainer(model=model, processing_class=tokenizer, train_dataset=data
 trainer.train()
 ```
 
+`from_pretrained` prints what the model will be trained with: the GPU, the
+versions of PyTorch, Transformers and TRL, the model's weights, and whether
+Liger and padding-free batches are on (and why not, when they are off).
+`LLEBRE_QUIET=1` in the environment turns it off.
+
 ## Where the speed comes from
 
 | Part | What it does |
