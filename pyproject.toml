@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llebre"
+version = "0.1.0"
+description = "Fast LoRA and QLoRA fine-tuning with permissively licensed components, with an Unsloth-style API"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Alejandro Martínez Corriá and the Thinkube contributors" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# torch comes from the environment (an NVIDIA container or a venv built on one),
+# so it is not a dependency. liger-kernel is held below 0.9: llebre sets the
+# chunk budget of Liger's fused loss through its ops module.
+dependencies = [
+    "transformers>=5.17,<6",
+    "trl>=0.29,<2",
+    "peft>=0.21,<1",
+    "liger-kernel>=0.8.5,<0.9",
+]
+
+[project.optional-dependencies]
+qlora = ["bitsandbytes>=0.50"]
+test = ["pytest>=8"]
+
+[project.urls]
+Repository = "https://github.com/thinkube/llebre"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llebre"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
