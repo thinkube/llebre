@@ -97,6 +97,7 @@ class FastLanguageModel:
         device_map: Any = None,
         token: Optional[str] = None,
         trust_remote_code: bool = False,
+        fast_inference: bool = False,
         **kwargs,
     ):
         """The model and its tokenizer, ready for get_peft_model.
@@ -107,9 +108,21 @@ class FastLanguageModel:
             a model type Liger has no patches for is refused unless liger=False.
         loss_chunk_budget: Liger's chunk_mem_const for the fused loss (see llebre._liger).
         device_map: the whole model on GPU 0 unless given.
+        fast_inference: vLLM inside the training process is not offered;
+            True is refused. Generation for GRPO through vLLM goes through
+            TRL's GRPOConfig(use_vllm=True). With fast_inference False, the
+            arguments that only configure that vLLM (gpu_memory_utilization,
+            max_lora_rank) have nothing to configure and are not used.
         Prints a banner of what the model will be trained with, unless
         LLEBRE_QUIET=1 is in the environment.
         """
+        if fast_inference:
+            raise NotImplementedError(
+                "fast_inference=True (vLLM inside the training process) is not offered by llebre; "
+                "for GRPO, generate through vLLM with TRL's GRPOConfig(use_vllm=True)"
+            )
+        for vllm_only in ("gpu_memory_utilization", "max_lora_rank"):
+            kwargs.pop(vllm_only, None)
         from transformers import AutoModelForCausalLM
 
         dtype = _dtype(dtype)

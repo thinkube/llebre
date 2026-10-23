@@ -1,19 +1,21 @@
 # Copyright Alejandro Martínez Corriá and the Thinkube contributors
 # SPDX-License-Identifier: Apache-2.0
 
-"""TRL's SFTTrainer, made to train a llebre model as llebre prepared it.
+"""TRL's SFTTrainer and GRPOTrainer, made to train a llebre model as llebre prepared it.
 
-For a model from llebre's from_pretrained, the trainer takes three settings
-from the model unless the SFTConfig gives them:
+For a model from llebre's from_pretrained, the trainer takes these settings
+from the model unless its config gives them:
 
-- padding_free: the examples of a micro-batch laid end to end as one
+- padding_free (SFT): the examples of a micro-batch laid end to end as one
   sequence, with position ids that restart at each example, so no compute
   goes to padding. from_pretrained decides whether the model can train that
   way (models.padding_free_ok).
 - gradient_checkpointing: as get_peft_model's use_gradient_checkpointing set it.
 - use_liger_kernel: as from_pretrained's liger set it. The trainer applies
   Liger's patches, and skips the metrics it would compute from the logits
-  that Liger's fused loss never builds.
+  that Liger's fused loss never builds. For GRPO, TRL 0.29 computes the
+  GRPO loss with Liger's chunked loss; TRL 1.x applies Liger's model kernels
+  without a fused loss.
 
 After the trainer is built, a model with fused_lora gets its fused kernels
 again, in place of the SwiGLU MLP forward that Liger set.
@@ -26,6 +28,7 @@ cuts them while preparing the dataset.
 """
 
 import functools
+import inspect
 
 _GIVEN = "_llebre_given"
 
@@ -51,11 +54,7 @@ class CutToLength:
         return self.collator([_cut(example, self.max_length) for example in examples])
 
 
-def patch_sft_trainer() -> None:
-    import trl
-
-    trainer_cls, config_cls = trl.SFTTrainer, trl.SFTConfig
-    trl_1 = int(trl.__version__.split(".")[0]) >= 1
+def _patch(trainer_cls, config_cls, kind: str, trl_1: bool) -> None:
     if getattr(trainer_cls.__init__, "_llebre", False):
         return
 
@@ -69,17 +68,20 @@ def patch_sft_trainer() -> None:
     config_cls.__init__ = config_init_recording
 
     trainer_init = trainer_cls.__init__
+    signature = inspect.signature(trainer_init)
 
     @functools.wraps(trainer_init)
-    def trainer_init_from_model(self, model=None, args=None, *rest, **kwargs):
+    def trainer_init_from_model(*call_args, **call_kwargs):
+        bound = signature.bind(*call_args, **call_kwargs)
+        model, args = bound.arguments.get("model"), bound.arguments.get("args")
         info = getattr(model, "_llebre", None)
         cut_to = None
         if info is not None:
             if args is None:
                 name = str(model.config._name_or_path).rstrip("/").split("/")[-1]
-                args = config_cls(output_dir=f"{name}-SFT")
+                args = bound.arguments["args"] = config_cls(output_dir=f"{name}-{kind.upper()}")
             given = getattr(args, _GIVEN, set())
-            if hasattr(args, "padding_free") and "padding_free" not in given:
+            if kind == "sft" and "padding_free" not in given:
                 args.padding_free = info["padding_free"]
                 if trl_1 and args.padding_free and not args.packing and args.max_length is not None:
                     cut_to, args.max_length = args.max_length, None
@@ -91,19 +93,28 @@ def patch_sft_trainer() -> None:
                 if checkpointing and "gradient_checkpointing_kwargs" not in given:
                     args.gradient_checkpointing_kwargs = {"use_reentrant": False}
             elif checkpointing and not args.gradient_checkpointing:
-                # The SFTConfig turns off what get_peft_model turned on
+                # The config turns off what get_peft_model turned on
                 model.gradient_checkpointing_disable()
         try:
-            trainer_init(self, model, args, *rest, **kwargs)
+            trainer_init(*bound.args, **bound.kwargs)
         finally:
             if cut_to is not None:
                 args.max_length = cut_to
+        trainer = bound.arguments["self"]
         if cut_to is not None:
-            self.data_collator = CutToLength(self.data_collator, cut_to)
+            trainer.data_collator = CutToLength(trainer.data_collator, cut_to)
         if info is not None and getattr(model, "_llebre_fused_lora", False):
             from llebre import _fused
 
-            _fused.apply(self.model)
+            _fused.apply(trainer.model)
 
     trainer_init_from_model._llebre = True
     trainer_cls.__init__ = trainer_init_from_model
+
+
+def patch_trainers() -> None:
+    import trl
+
+    trl_1 = int(trl.__version__.split(".")[0]) >= 1
+    _patch(trl.SFTTrainer, trl.SFTConfig, "sft", trl_1)
+    _patch(trl.GRPOTrainer, trl.GRPOConfig, "grpo", trl_1)

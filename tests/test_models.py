@@ -77,3 +77,8 @@ def test_fast_model_refuses_vision_layers_and_empty_choices(tiny_model):
         FastModel.get_peft_model(tiny_model, finetune_vision_layers=True)
     with pytest.raises(ValueError):
         FastModel.get_peft_model(tiny_model, finetune_attention_modules=False, finetune_mlp_modules=False)
+
+
+def test_fast_inference_is_refused_before_anything_loads():
+    with pytest.raises(NotImplementedError, match="use_vllm"):
+        FastLanguageModel.from_pretrained("no/such-model", fast_inference=True)

@@ -53,3 +53,17 @@ def test_examples_are_cut_to_max_length(tiny_model, tokenizer, tmp_path):
     # padding-free: the two examples end to end in one row, each cut to 3 tokens
     assert batch["input_ids"].shape == (1, 6)
     assert batch["position_ids"].tolist() == [[0, 1, 2, 0, 1, 2]]
+
+
+def test_grpo_takes_its_settings_from_the_model(tiny_model, tokenizer, tmp_path):
+    from trl import GRPOConfig, GRPOTrainer
+
+    model = FastLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=True)
+    prompts = Dataset.from_dict({"prompt": ["the hare", "the sloth"]})
+    args = GRPOConfig(output_dir=str(tmp_path), use_cpu=True, bf16=False, report_to=[], max_steps=1,
+                      per_device_train_batch_size=2, num_generations=2, max_completion_length=4)
+    # reward_funcs by position, as GRPOTrainer's signature puts it before args
+    t = GRPOTrainer(model, lambda completions, **kw: [0.0] * len(completions), args=args,
+                    train_dataset=prompts, processing_class=tokenizer)
+    assert t.args.gradient_checkpointing is True
+    assert t.args.use_liger_kernel is False
