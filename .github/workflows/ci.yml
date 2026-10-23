@@ -8,6 +8,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # The TRL of Thinkube's fine-tuning venvs, and the newest TRL
+        trl: ["0.29.1", "1.16.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,5 +21,5 @@ jobs:
       # The CPU build of torch: the tests run a tiny model, and the package does
       # not depend on torch (the training environment provides it)
       - run: pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install -e ".[test,qlora]" datasets
+      - run: pip install -e ".[test,qlora]" "trl==${{ matrix.trl }}" "datasets>=4.7"
       - run: pytest -q

@@ -41,3 +41,15 @@ def test_other_models_are_left_alone(tiny_model, tokenizer, tmp_path):
     del tiny_model._llebre
     t = trainer(tiny_model, tokenizer, tmp_path, gradient_checkpointing=False)
     assert t.args.padding_free is False
+
+
+def test_examples_are_cut_to_max_length(tiny_model, tokenizer, tmp_path):
+    long = Dataset.from_dict({"text": ["the hare runs fast and the sloth sleeps"] * 2})
+    model = FastLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False)
+    args = SFTConfig(output_dir=str(tmp_path), use_cpu=True, bf16=False, report_to=[], max_steps=1, max_length=3)
+    t = SFTTrainer(model=model, args=args, train_dataset=long, processing_class=tokenizer)
+    assert t.args.padding_free is True and t.args.max_length == 3
+    batch = t.data_collator([t.train_dataset[0], t.train_dataset[1]])
+    # padding-free: the two examples end to end in one row, each cut to 3 tokens
+    assert batch["input_ids"].shape == (1, 6)
+    assert batch["position_ids"].tolist() == [[0, 1, 2, 0, 1, 2]]
