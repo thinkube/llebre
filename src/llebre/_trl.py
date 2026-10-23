@@ -19,6 +19,8 @@ from the model unless its config gives them:
   experts of a mixture of experts), Liger's SwiGLU is left off: it would
   replace the forward of the module PEFT has wrapped.
 
+With several processes (DDP), ddp_find_unused_parameters is False unless given.
+
 After the trainer is built, a model with fused_lora gets its fused kernels
 again, in place of the SwiGLU MLP forward that Liger set.
 
@@ -31,6 +33,7 @@ cuts them while preparing the dataset.
 
 import functools
 import inspect
+import os
 
 _GIVEN = "_llebre_given"
 
@@ -95,6 +98,11 @@ def _patch(trainer_cls, config_cls, kind: str, trl_1: bool) -> None:
                 # module; Liger's SwiGLU, which replaces that module's forward, would
                 # run on PEFT's wrapper instead
                 args.liger_kernel_config = {**(args.liger_kernel_config or {}), "swiglu": False}
+            if int(os.environ.get("WORLD_SIZE", 1)) > 1 and "ddp_find_unused_parameters" not in given:
+                # Under DDP every adapter takes part in every step; looking for unused
+                # parameters only costs a pass over the graph, and fails with
+                # gradient checkpointing
+                args.ddp_find_unused_parameters = False
             checkpointing = getattr(model, "_llebre_gradient_checkpointing", None)
             if checkpointing is not None and "gradient_checkpointing" not in given:
                 args.gradient_checkpointing = checkpointing

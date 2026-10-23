@@ -9,6 +9,7 @@ bitsandbytes and Liger Kernel.
 """
 
 import contextlib
+import os
 import types
 from typing import Any, Optional
 
@@ -108,9 +109,10 @@ class FastLanguageModel:
         liger: Liger's kernels and fused loss, which TRL's SFTTrainer applies;
             a model type Liger has no patches for is refused unless liger=False.
         loss_chunk_budget: Liger's chunk_mem_const for the fused loss (see llebre._liger).
-        device_map: the whole model on GPU 0 unless given. On a GPU that shares
-            the system's memory, the whole model is loaded shard by shard (see
-            llebre._unified_memory).
+        device_map: the whole model on the process's GPU unless given: GPU
+            LOCAL_RANK under torchrun or accelerate launch, else GPU 0. On a GPU
+            that shares the system's memory, a model loaded whole onto it is
+            loaded shard by shard (see llebre._unified_memory).
         fast_inference: vLLM inside the training process is not offered;
             True is refused. Generation for GRPO through vLLM goes through
             TRL's GRPOConfig(use_vllm=True). With fast_inference False, the
@@ -136,9 +138,14 @@ class FastLanguageModel:
 
             quantization = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                               bnb_4bit_compute_dtype=dtype, bnb_4bit_use_double_quant=True)
-        device_map = device_map if device_map is not None else {"": 0}
-        whole_on_gpu_0 = isinstance(device_map, dict) and set(device_map.values()) <= {0, "cuda:0"}
-        loading = (_unified_memory.shards_to_gpu() if whole_on_gpu_0 and _unified_memory.shares_system_memory()
+        # One process per GPU (torchrun, accelerate launch) puts the model on its own GPU
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        device_map = device_map if device_map is not None else {"": local_rank}
+        on_one_gpu = isinstance(device_map, dict) and len({str(v) for v in device_map.values()}) == 1
+        gpu = next(iter(device_map.values())) if on_one_gpu else None
+        gpu_index = int(str(gpu).removeprefix("cuda:")) if on_one_gpu and str(gpu).removeprefix("cuda:").isdigit() else None
+        loading = (_unified_memory.shards_to_gpu(f"cuda:{gpu_index}")
+                   if gpu_index is not None and _unified_memory.shares_system_memory(gpu_index)
                    else contextlib.nullcontext())
         with loading:
             model = AutoModelForCausalLM.from_pretrained(
