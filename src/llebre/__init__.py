@@ -14,9 +14,10 @@ makes GRPO's weight updates reach vLLM under their checkpoint names (see llebre.
 
 from llebre import _trl, _vllm
 from llebre.models import FastLanguageModel, FastModel
+from llebre.multi_gpu import fsdp_config
 
 __version__ = "0.1.0"
-__all__ = ["FastLanguageModel", "FastModel", "__version__"]
+__all__ = ["FastLanguageModel", "FastModel", "fsdp_config", "__version__"]
 
 _trl.patch_trainers()
 _vllm.patch_vllm_generation()

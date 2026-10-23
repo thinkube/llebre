@@ -39,7 +39,7 @@ Liger and padding-free batches are on (and why not, when they are off).
 | Example boundaries in linear-attention layers | Qwen3.5, Qwen3.6 and Qwen3-Next train padding-free with TRL 1.16 or later and [flash-linear-attention](https://github.com/fla-org/flash-linear-attention) (MIT): llebre gives their short convolution the boundaries, which its PyTorch version ignores. With an older TRL, or without flash-linear-attention, these models train on padded batches |
 | [Axolotl](https://github.com/axolotl-ai-cloud/axolotl)'s LoRA kernels (Apache-2.0), off by default | `get_peft_model(..., fused_lora=True)`: each adapted projection and each SwiGLU MLP computed with its adapter in one function with a hand-written backward pass. Models whose MLP is not SwiGLU are refused |
 
-## Measured
+## Measured on one GPU
 
 salamandraTA-2b-instruct (256K vocabulary) on one NVIDIA GB10, LoRA rank 16
 on the seven projections, batch 8, at most 1,024 tokens, 8-bit AdamW, gradient
@@ -52,8 +52,80 @@ tokens in every run:
 | llebre 0.1.0 | 2,871 | 3,161 | 5.1 / 3.4 GB | 2.492 / 2.561 |
 | llebre 0.1.0, `fused_lora=True` | 3,451 | 3,447 | 5.1 / 3.4 GB | 2.492 / 2.563 |
 
-The gain is largest on models with a large vocabulary; it has not been
-measured on larger models yet.
+The gain is largest on models with a large vocabulary.
+
+## Mixture of experts
+
+LoRA on an expert stack goes through PEFT's `target_parameters`:
+
+```python
+model = lb.FastModel.get_peft_model(model, r=16, lora_alpha=16, target_modules=[...],
+                                    target_parameters=["mlp.experts.gate_up_proj", "mlp.experts.down_proj"])
+```
+
+PEFT turns the whole stack's weights into W + B·A for every expert at every
+forward and backward; llebre computes each adapter's change on the tokens
+routed to each expert only, two grouped matmuls of the LoRA rank's width,
+and builds no full weight. Qwen3.6-35B-A3B on one NVIDIA GB10, LoRA rank 16 on
+attention, gated DeltaNet, the shared expert and the 256 routed experts (941.9 M
+parameters), 32 translation examples per step, padding-free:
+
+| | Seconds per step | Steps per hour | Peak GPU memory |
+|---|---|---|---|
+| Unsloth (a training run of the same model, data and settings) | 10.5 | 343 | 76.0 GB |
+| llebre, PEFT's expert LoRA | 15.6 | 231 | 76.5 GB |
+| llebre | 8.1 | 443 | 74.9 GB |
+
+## GRPO with vLLM
+
+TRL's `GRPOTrainer` takes its settings from a llebre model as `SFTTrainer`
+does, and generates through vLLM in the training process with
+`GRPOConfig(use_vllm=True, vllm_mode="colocate")` (TRL 1.16 or later, vLLM
+0.22 to 0.31 in the same environment). A model that Transformers loads under
+other weight names than its checkpoint's, such as Qwen3.5's text model out of
+its multimodal checkpoint, gets its weights to vLLM under the checkpoint's
+names. A GRPO recipe on Qwen3.5-4B, 32 completions of up to 800 tokens per
+step, one NVIDIA GB10:
+
+| | First step | Each later step |
+|---|---|---|
+| Unsloth, without vLLM | 2,038 s | 122.8 s |
+| llebre, without vLLM | 183 s | 161.7 s |
+| llebre with vLLM | 149 s | 116.6 s |
+
+## Several GPUs
+
+- A model that fits on one GPU: DDP, one process per GPU, `torchrun
+  --nproc_per_node N train.py`. Each process trains on its own GPU.
+- A model that does not fit: FSDP2, `SFTConfig(..., **lb.fsdp_config(model))`
+  with the model loaded by `from_pretrained(..., device_map="cpu")`, launched
+  the same way; or its layers spread over the GPUs in one process,
+  `from_pretrained(..., device_map="balanced")`, launched with `python`.
+
+Under FSDP llebre keeps the model's BF16 weights in BF16 (`bf16` left unset:
+Accelerate would turn them to FP32 before sharding) and refuses bitsandbytes'
+optimizers, which cannot update sharded parameters. In a model spread over
+GPUs, each part runs with its own GPU as the current device, so that Triton's
+kernels reach their tensors between GPUs without peer-to-peer access.
+
+Two NVIDIA RTX 3090 (24 GB) on PCIe, no NVLink, LoRA rank 16, padding-free,
+no_robots:
+
+| | Tokens per second | Memory per GPU |
+|---|---|---|
+| salamandraTA-7b, one GPU, 8 examples per step | 1,287 | 16.4 GB |
+| salamandraTA-7b, DDP, 8 per GPU | 2,229 | 17.0 GB |
+| salamandraTA-7b, FSDP2, 32 per GPU | 1,948 | 15.0 GB |
+| salamandraTA-7b, layers spread, 8 per step | 1,289 | 6.8 / 10.4 GB |
+| Qwen3-14B (29.5 GB, does not fit one GPU), layers spread, 8 per step | 641 | 14.3 / 16.9 GB |
+| Qwen3-14B, FSDP2, 16 per GPU | 799 | 19.2 GB |
+
+## Large models on GPUs that share the system's memory
+
+On an NVIDIA GB10 (DGX Spark) the GPU and the page cache share one memory,
+and loading a checkpoint the usual way holds it twice. `from_pretrained`
+reads each shard straight to such a GPU and drops it from the page cache: a
+67 GB checkpoint loads in about a minute.
 
 ## Training on the answers only
 
@@ -80,7 +152,9 @@ is left as it was.
 
 ## What it does not do yet
 
-- Vision layers, GRPO with vLLM sharing the weights, GGUF export, several GPUs.
+- Vision layers; GRPO with vLLM sharing one copy of the weights with the
+  trainer; GGUF export; QLoRA and expert LoRA under FSDP2; training across
+  several machines.
 
 ## Not affiliated with Unsloth
 
