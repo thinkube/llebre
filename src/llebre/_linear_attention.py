@@ -16,15 +16,24 @@ boundaries, runs flash-linear-attention's causal convolution over them, and
 otherwise runs the module's own.
 """
 
-import importlib.util
 import sys
 
 _PATCHED = "_llebre_boundaries"
 
 
 def available() -> bool:
-    """flash-linear-attention is installed, for the delta rule and the convolution."""
-    return importlib.util.find_spec("fla") is not None
+    """flash-linear-attention's kernels import: the gated delta rule and the causal convolution.
+
+    The package flash-linear-attention ships them in a second package, fla-core;
+    without it "fla" imports but its kernels do not, and Transformers quietly runs
+    the PyTorch delta rule, which ignores the boundaries.
+    """
+    try:
+        from fla.modules.conv import causal_conv1d  # noqa: F401
+        from fla.ops.gated_delta_rule import chunk_gated_delta_rule  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def _with_boundaries(original):

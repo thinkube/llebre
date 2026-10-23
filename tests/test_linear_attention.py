@@ -98,3 +98,4 @@ def test_packed_examples_give_the_same_gradients(hybrid, examples):
     assert alone.keys() == together.keys()
     for name in alone:
         assert relative(together[name], alone[name]) < 0.05, name
+
