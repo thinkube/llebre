@@ -6,14 +6,14 @@ import copy
 import pytest
 import torch
 
-from llebre import FastLanguageModel, FastModel
+from llebre import LlebreLanguageModel, LlebreModel
 
 cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="the SwiGLU kernel runs on a GPU")
 
 
 def with_adapters(model, **options):
     """The PEFT model with non-zero B matrices, so the adapters change the output."""
-    peft_model = FastLanguageModel.get_peft_model(model, r=4, use_gradient_checkpointing=False, **options)
+    peft_model = LlebreLanguageModel.get_peft_model(model, r=4, use_gradient_checkpointing=False, **options)
     torch.manual_seed(1)
     for name, p in peft_model.named_parameters():
         if "lora_B" in name:
@@ -51,7 +51,7 @@ def test_fused_projections_train_like_peft(tiny_model):
 def test_a_mlp_that_is_not_swiglu_is_refused(tiny_model):
     tiny_model.config.hidden_act = "gelu"
     with pytest.raises(NotImplementedError, match="gelu"):
-        FastModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False, fused_lora=True)
+        LlebreModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False, fused_lora=True)
 
 
 def test_applying_again_keeps_the_kernels(tiny_model):

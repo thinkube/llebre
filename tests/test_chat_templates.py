@@ -5,7 +5,7 @@ import pytest
 from datasets import Dataset
 from trl import SFTConfig, SFTTrainer
 
-from llebre import FastLanguageModel
+from llebre import LlebreLanguageModel
 from llebre.chat_templates import response_mask, train_on_responses_only
 
 U, A = [1], [2]  # instruction part, response part
@@ -33,7 +33,7 @@ def words(tokenizer):
 @pytest.mark.parametrize("padding_free", [True, False])
 def test_only_answer_tokens_keep_their_labels(tiny_model, words, tmp_path, padding_free):
     tiny_model.resize_token_embeddings(len(words))
-    model = FastLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False)
+    model = LlebreLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False)
     args = SFTConfig(output_dir=str(tmp_path), use_cpu=True, bf16=False, report_to=[], max_steps=1,
                      padding_free=padding_free, max_length=None)
     trainer = train_on_responses_only(SFTTrainer(model=model, args=args, train_dataset=TALK, processing_class=words),

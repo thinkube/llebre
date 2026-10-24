@@ -37,8 +37,8 @@ from trl import SFTConfig, SFTTrainer  # noqa: E402
 import llebre as lb  # noqa: E402
 from common import Clock, chat_dataset, peak_gib, record  # noqa: E402
 
-model, tokenizer = lb.FastModel.from_pretrained(a.model, max_seq_length=a.max_length, dtype=torch.bfloat16)
-model = lb.FastModel.get_peft_model(
+model, tokenizer = lb.LlebreModel.from_pretrained(a.model, max_seq_length=a.max_length, dtype=torch.bfloat16)
+model = lb.LlebreModel.get_peft_model(
     model, r=16, lora_alpha=16, lora_dropout=0.0,
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "out_proj",
                     "gate_proj", "up_proj", "down_proj"],

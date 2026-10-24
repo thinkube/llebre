@@ -1,11 +1,9 @@
 # Copyright Alejandro Martínez Corriá and the Thinkube contributors
 # SPDX-License-Identifier: Apache-2.0
 
-"""FastLanguageModel and FastModel: load a model for training, then add LoRA.
+"""LlebreLanguageModel and LlebreModel: load a model for training, then add LoRA.
 
-The names and arguments follow Unsloth's API, so a notebook moves between the
-two by its import line. Every part underneath is Transformers, PEFT, TRL,
-bitsandbytes and Liger Kernel.
+Every part underneath is Transformers, PEFT, TRL, bitsandbytes and Liger Kernel.
 """
 
 import contextlib
@@ -86,7 +84,7 @@ def _dtype(dtype: Optional[torch.dtype]) -> torch.dtype:
     return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
 
-class FastLanguageModel:
+class LlebreLanguageModel:
     @staticmethod
     def from_pretrained(
         model_name: str,
@@ -255,7 +253,7 @@ class FastLanguageModel:
         return model
 
 
-class FastModel(FastLanguageModel):
+class LlebreModel(LlebreLanguageModel):
     @staticmethod
     def get_peft_model(
         model,
@@ -281,4 +279,4 @@ class FastModel(FastLanguageModel):
                 MLP_TARGETS if finetune_mlp_modules else [])
             if not target_modules:
                 raise ValueError("nothing to train: no attention and no MLP modules chosen")
-        return FastLanguageModel.get_peft_model(model, r=r, target_modules=target_modules, **kwargs)
+        return LlebreLanguageModel.get_peft_model(model, r=r, target_modules=target_modules, **kwargs)

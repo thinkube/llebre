@@ -5,7 +5,7 @@ import pytest
 import torch
 from transformers import LlamaConfig, PretrainedConfig
 
-from llebre import FastLanguageModel, FastModel
+from llebre import LlebreLanguageModel, LlebreModel
 from llebre.models import ATTENTION_TARGETS, DEFAULT_TARGETS, padding_free_ok
 
 
@@ -35,7 +35,7 @@ def lora_names(model):
 
 
 def test_get_peft_model_trains_only_the_adapters(tiny_model):
-    model = FastLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False)
+    model = LlebreLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False)
     trainable = {name for name, p in model.named_parameters() if p.requires_grad}
     assert trainable and all(".lora_" in name for name in trainable)
     assert lora_names(model) == set(DEFAULT_TARGETS)
@@ -43,42 +43,42 @@ def test_get_peft_model_trains_only_the_adapters(tiny_model):
 
 
 def test_random_state_fixes_the_initial_adapters(tiny_model):
-    a = FastLanguageModel.get_peft_model(tiny_model, r=4, random_state=7, use_gradient_checkpointing=False)
+    a = LlebreLanguageModel.get_peft_model(tiny_model, r=4, random_state=7, use_gradient_checkpointing=False)
     first = {n: p.detach().clone() for n, p in a.named_parameters() if "lora_A" in n}
     a.unload()
-    b = FastLanguageModel.get_peft_model(tiny_model, r=4, random_state=7, use_gradient_checkpointing=False)
+    b = LlebreLanguageModel.get_peft_model(tiny_model, r=4, random_state=7, use_gradient_checkpointing=False)
     for name, p in b.named_parameters():
         if "lora_A" in name:
             assert torch.equal(p, first[name])
 
 
 def test_gradient_checkpointing_follows_the_argument(tiny_model):
-    model = FastLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=True)
+    model = LlebreLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=True)
     assert model.base_model.model.is_gradient_checkpointing
-    FastLanguageModel.for_inference(model)
+    LlebreLanguageModel.for_inference(model)
     assert not model.base_model.model.is_gradient_checkpointing and model.config.use_cache
-    FastLanguageModel.for_training(model)
+    LlebreLanguageModel.for_training(model)
     assert model.base_model.model.is_gradient_checkpointing and not model.config.use_cache
 
 
 def test_get_peft_model_refuses_a_model_llebre_did_not_load(tiny_model):
     del tiny_model._llebre
     with pytest.raises(TypeError):
-        FastLanguageModel.get_peft_model(tiny_model)
+        LlebreLanguageModel.get_peft_model(tiny_model)
 
 
 def test_fast_model_chooses_targets_by_kind(tiny_model):
-    model = FastModel.get_peft_model(tiny_model, r=4, finetune_mlp_modules=False, use_gradient_checkpointing=False)
+    model = LlebreModel.get_peft_model(tiny_model, r=4, finetune_mlp_modules=False, use_gradient_checkpointing=False)
     assert lora_names(model) == set(ATTENTION_TARGETS)
 
 
 def test_fast_model_refuses_vision_layers_and_empty_choices(tiny_model):
     with pytest.raises(NotImplementedError):
-        FastModel.get_peft_model(tiny_model, finetune_vision_layers=True)
+        LlebreModel.get_peft_model(tiny_model, finetune_vision_layers=True)
     with pytest.raises(ValueError):
-        FastModel.get_peft_model(tiny_model, finetune_attention_modules=False, finetune_mlp_modules=False)
+        LlebreModel.get_peft_model(tiny_model, finetune_attention_modules=False, finetune_mlp_modules=False)
 
 
 def test_fast_inference_is_refused_before_anything_loads():
     with pytest.raises(NotImplementedError, match="use_vllm"):
-        FastLanguageModel.from_pretrained("no/such-model", fast_inference=True)
+        LlebreLanguageModel.from_pretrained("no/such-model", fast_inference=True)

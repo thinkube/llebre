@@ -14,7 +14,7 @@ from tokenizers.pre_tokenizers import Whitespace
 from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast
 from trl import SFTConfig, SFTTrainer
 
-from llebre import FastLanguageModel
+from llebre import LlebreLanguageModel
 
 words = ["<unk>", "<pad>", "</s>", "the", "hare", "runs", "fast", "and", "sloth", "sleeps"]
 backend = Tokenizer(WordLevel({w: i for i, w in enumerate(words)}, unk_token="<unk>"))
@@ -24,7 +24,7 @@ torch.manual_seed(0)
 model = LlamaForCausalLM(LlamaConfig(vocab_size=len(words), hidden_size=32, intermediate_size=64, num_hidden_layers=2,
                                      num_attention_heads=4, num_key_value_heads=2, max_position_embeddings=64))
 model._llebre = {"padding_free": False, "liger": False}
-model = FastLanguageModel.get_peft_model(model, r=4, use_gradient_checkpointing=True)
+model = LlebreLanguageModel.get_peft_model(model, r=4, use_gradient_checkpointing=True)
 args = SFTConfig(output_dir=os.environ["OUT"], use_cpu=True, bf16=False, report_to=[], max_steps=1,
                  per_device_train_batch_size=1, save_strategy="no")
 trainer = SFTTrainer(model=model, args=args, processing_class=tokenizer,

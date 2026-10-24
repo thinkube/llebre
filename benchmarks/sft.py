@@ -51,8 +51,8 @@ peft_config = None
 if a.arm == "llebre":
     import llebre as lb
 
-    model, tokenizer = lb.FastLanguageModel.from_pretrained(a.model, max_seq_length=a.max_length, load_in_4bit=qlora)
-    model = lb.FastLanguageModel.get_peft_model(model, r=16, lora_alpha=16, target_modules=TARGETS,
+    model, tokenizer = lb.LlebreLanguageModel.from_pretrained(a.model, max_seq_length=a.max_length, load_in_4bit=qlora)
+    model = lb.LlebreLanguageModel.get_peft_model(model, r=16, lora_alpha=16, target_modules=TARGETS,
                                                 use_gradient_checkpointing=True, random_state=0, fused_lora=a.fused)
 elif a.arm == "unsloth":
     from unsloth import FastLanguageModel

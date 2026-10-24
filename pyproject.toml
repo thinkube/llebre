@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "llebre"
 version = "0.1.0"
-description = "Fast LoRA and QLoRA fine-tuning with permissively licensed components, with an Unsloth-style API"
+description = "Fast LoRA and QLoRA fine-tuning with permissively licensed components"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

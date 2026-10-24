@@ -8,7 +8,7 @@ import torch
 from datasets import Dataset
 from trl import SFTConfig, SFTTrainer
 
-from llebre import FastLanguageModel
+from llebre import LlebreLanguageModel
 
 pytestmark = pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two GPUs")
 SPREAD = {"model.embed_tokens": 0, "model.rotary_emb": 0, "model.layers.0": 0, "model.layers.1": 1,
@@ -16,9 +16,9 @@ SPREAD = {"model.embed_tokens": 0, "model.rotary_emb": 0, "model.layers.0": 0, "
 
 
 def first_loss(path, tokenizer, device_map, tmp_path):
-    model, _ = FastLanguageModel.from_pretrained(str(path), dtype=torch.bfloat16, attn_implementation="sdpa",
+    model, _ = LlebreLanguageModel.from_pretrained(str(path), dtype=torch.bfloat16, attn_implementation="sdpa",
                                                  device_map=device_map)
-    model = FastLanguageModel.get_peft_model(model, r=4, use_gradient_checkpointing=True, random_state=1)
+    model = LlebreLanguageModel.get_peft_model(model, r=4, use_gradient_checkpointing=True, random_state=1)
     args = SFTConfig(output_dir=str(tmp_path / str(len(set(device_map.values())))), report_to=[], max_steps=1,
                      per_device_train_batch_size=2, logging_steps=1, save_strategy="no", seed=0)
     trainer = SFTTrainer(model=model, args=args, processing_class=tokenizer,

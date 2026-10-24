@@ -39,9 +39,9 @@ parser.add_argument("--progress")
 a = parser.parse_args()
 
 if a.arm == "unsloth":
-    from unsloth import FastLanguageModel
+    from unsloth import FastLanguageModel as LanguageModel
 else:
-    from llebre import FastLanguageModel
+    from llebre import LlebreLanguageModel as LanguageModel
 
 import torch  # noqa: E402
 import trl  # noqa: E402
@@ -53,10 +53,10 @@ import zebra_task  # noqa: E402
 from common import record  # noqa: E402
 
 NUM_GENERATIONS, MAX_SEQ_LEN, MAX_COMPLETION = 8, 3072, 800
-model, tokenizer = FastLanguageModel.from_pretrained(model_name=a.model, max_seq_length=MAX_SEQ_LEN,
+model, tokenizer = LanguageModel.from_pretrained(model_name=a.model, max_seq_length=MAX_SEQ_LEN,
                                                      load_in_4bit=False, dtype=torch.bfloat16, fast_inference=False,
                                                      attn_implementation=a.attn)
-model = FastLanguageModel.get_peft_model(
+model = LanguageModel.get_peft_model(
     model, r=16, lora_alpha=16, lora_dropout=0, bias="none", random_state=3407,
     target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     use_gradient_checkpointing="unsloth" if a.arm == "unsloth" else True)

@@ -45,8 +45,9 @@ elif a.mode == "fsdp" and not a.qlora:
     load["device_map"] = {"": "cpu"}
 if a.qlora:
     load.update(load_in_4bit=True, **({"quant_storage": torch.bfloat16} if a.mode == "fsdp" else {}))
-model, tokenizer = lb.FastLanguageModel.from_pretrained(a.model, max_seq_length=a.max_length, **load)
-model = lb.FastLanguageModel.get_peft_model(model, r=16, lora_alpha=16, use_gradient_checkpointing=True, random_state=0)
+model, tokenizer = lb.LlebreLanguageModel.from_pretrained(a.model, max_seq_length=a.max_length, **load)
+model = lb.LlebreLanguageModel.get_peft_model(model, r=16, lora_alpha=16, use_gradient_checkpointing=True,
+                                              random_state=0)
 data = chat_dataset("HuggingFaceH4/no_robots", a.batch * world * a.steps, alternating=True)
 
 config = dict(output_dir="/tmp/llebre-multi-gpu", per_device_train_batch_size=a.batch, max_steps=a.steps,

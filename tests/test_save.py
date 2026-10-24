@@ -5,14 +5,14 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM
 
-from llebre import FastLanguageModel
+from llebre import LlebreLanguageModel
 
 IDS = torch.tensor([[3, 4, 5, 6, 7, 8, 9]])
 
 
 @pytest.fixture
 def trained(tiny_model):
-    model = FastLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False)
+    model = LlebreLanguageModel.get_peft_model(tiny_model, r=4, use_gradient_checkpointing=False)
     torch.manual_seed(1)
     for name, p in model.named_parameters():
         if "lora_B" in name:
